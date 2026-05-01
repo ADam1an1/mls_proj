@@ -7,18 +7,22 @@ from qutip import expect
 import h5py
 
 
-def plot_energies(test_dir, file_prefix, states, mini, maxi, step, omega = 1, norm_state=None, xlabel="", model="", lims=[]):
+def plot_energies(test_dir, file_prefix, states, mini, maxi, step, 
+                  omega = 1, norm_state=None, xlabel="", model="", lims=[]):
     i = 0
     xs = []
     ys = []
-    for coupling in tqdm(np.arange(mini, maxi, step)):
-        xs.append(coupling)   
-        with h5py.File("{}/{}_{:.3f}".format(test_dir, file_prefix, coupling), "r") as f:
-            eigenE = f['energies']['eigenE']
-            if norm_state != None:
-                ys.append((eigenE[states] - [eigenE[norm_state] for _ in states]) / omega)
-            else:
-                ys.append(eigenE[states])
+    for coupling in tqdm(np.arange(mini, maxi, step)):  
+        try:
+            with h5py.File("{}/{}_{:.3f}".format(test_dir, file_prefix, coupling), "r") as f:
+                eigenE = f['energies']['eigenE']
+                if norm_state != None:
+                    ys.append((eigenE[states] - [eigenE[norm_state] for _ in states]) / omega)
+                else:
+                    ys.append(eigenE[states])
+            xs.append(coupling) 
+        except:
+            continue
     print(np.array(ys).shape)
     for j in range(len(states)):
         plt.plot(xs, np.array(ys)[:, j], label=states[j])

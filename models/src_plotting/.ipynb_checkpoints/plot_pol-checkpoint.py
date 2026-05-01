@@ -16,7 +16,8 @@ def plot_polaritons(systems, states, mini, maxi, step, omega = 1, norm_state=Non
     colors = [[] for _ in range(len(states))]
     for coupling in tqdm(np.arange(mini, maxi, step)):
         hamiltonian = systems[i].total_hamiltonian
-        photon_op = systems[i].gen_cavity_operators()[0]
+        U = systems[i].gen_transform(model)
+        photon_op = U * systems[i].gen_cavity_operators()[0] * U.dag()
         eigenE, eigenV = hamiltonian.eigenstates()
         xs.append(coupling)
         for j in range(len(states)):

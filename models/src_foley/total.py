@@ -17,7 +17,7 @@ def calc_spatial_coupling(system_positions, lambdas, photon_freqs):
             factor = 1
             if system_positions[system] != None:
                 # magnitude of field sin(2pi k x)
-                factor *= np.abs(np.sin(2 * np.pi * system_positions[system] * freq))
+                factor *= np.sin(2 * np.pi * system_positions[system] * freq)
             lambdas_cur_sys.append(factor * np.array(lamb))
         lambdas_spatial.append(lambdas_cur_sys)
     return lambdas_spatial
@@ -49,7 +49,8 @@ class TotalSystem:
     """
 
     def __init__(self, systems, photon_freqs, max_photon_nums,
-                 lambdas, mus, positions=[], model="", filepath="/scratch/avd383/qed-ci/H2_chain"):
+                 lambdas, mus, positions=[], model="", 
+                 filepaths=["/scratch/avd383/qed-ci/H2_chain"], bases=["sto3g_hf"]):
         """
         Creates the class
         
@@ -82,13 +83,13 @@ class TotalSystem:
                 [mode1 pnum, ...]
         """
         self.model = model
-        if not positions:
+        if len(positions) == 0:
             positions = [None for _ in range(len(systems))]
-        check_total_params(systems, photon_freqs, max_photon_nums, lambdas, mus, positions)
+        # check_total_params(systems, photon_freqs, max_photon_nums, lambdas, mus, positions)
         
         self.lambdas_spatial = calc_spatial_coupling(positions, lambdas, photon_freqs) 
         self.cavity = Cavity(photon_freqs, max_photon_nums)
-        self.mp_systems = MultipartiteSystem(systems, self.lambdas_spatial, mus, positions, filepath)
+        self.mp_systems = MultipartiteSystem(systems, self.lambdas_spatial, mus, positions, filepaths, bases)
         self.identity = tensor(self.cavity.identity, self.mp_systems.identity)
 
         # calculate diagonal multipartite system energy terms
@@ -160,19 +161,17 @@ class TotalSystem:
                                     for m in range(self.cavity.nmodes)], self.mp_systems.identity)
             
             if "minus" in self.model or "plus" in self.model:
-                ann_cav = self.gen_ann_shifted(ann_cav)
+                ann_cav = self.gen_ann_shifted(ann_cav, self.model)
             
             num_op = ann_cav.dag() * ann_cav
-
-            if "pzw" in self.model:
-                u = self.gen_pzw()
-                num_op = u * num_op * u.dag()
-                           
+              
             operators.append(num_op)              
         return operators
 
-    def gen_ann_shifted(self, ann_cav):
+    def gen_ann_shifted(self, ann_cav, shift=None):
+        # from dipole to coulomb
         # a -> a' = a + i sum_i (eta * sigma_x^i) 
+        # from PF to coulomb
         # a -> a' = ia - i wc sum A_i cdot mu_i
         # a -> a' = ia - i sum 1/sqrt(w_c/2) lambda cdot mu
         ann_cav *= complex(0, 1)
@@ -190,9 +189,9 @@ class TotalSystem:
                                           else qeye(self.mp_systems.dims[j])
                                           for j in range(self.mp_systems.nsystems)])
                 prefactor = complex(0, 1) / np.sqrt(2 * self.cavity.freqs[mode])
-                if self.model == "minus":
+                if shift and "minus" in shift:
                     ann_cav -= prefactor * tensor(self.cavity.identity, lambda_dot_mu_total)
-                elif self.model == "plus":
+                elif shift and "plus" in shift:
                     ann_cav += prefactor * tensor(self.cavity.identity, lambda_dot_mu_total)
         return ann_cav   
 
@@ -208,16 +207,6 @@ class TotalSystem:
                                  for j in range(self.mp_systems.nsystems)])
                 operators.append(tensor(self.cavity.identity, sys_op))
         return operators
-
-    def gen_pol_operators(self, eigs):
-        """
-        Gives state operators for every systems' states
-        """
-        operators = []
-        eigengs, eigvecs = self.total_hamiltonian.eigenstates()
-        for eigenstate in eigvecs[eigs]:
-            operators.append(eigenstate * eigenstate.dag())
-        return operators
         
     def gen_total_state(self, systems_dirac, photons_dirac):
         """
@@ -230,9 +219,6 @@ class TotalSystem:
     def gen_joint_operator(self, systems_dirac, photons_dirac):   
         state = self.gen_total_state(systems_dirac, photons_dirac)
         proj = state * state.dag()
-        if "pzw" in self.model:
-            U = self.gen_pzw()
-            proj = U * proj * U.dag()
         return proj
         
     def gen_joint_label(self, systems_dirac, photons_dirac):
@@ -242,11 +228,10 @@ class TotalSystem:
         return r"$|{}\rangle |{}\rangle$".format(str(systems_dirac)[1:-1], str(photons_dirac)[1:-1])
 
     def gen_pzw(self):
-        # gives the power zienau woolley 
-        # tranformation unitary transformation
-        # U = exp(-i eta (a + a.dag()) sigmax)
-        # U = exp(-(a - a.dag()) sqrt(1 / 2 omega_c) lambda dot mu)
-        terms = []
+        # gives the tranformation from coulomb to dipole, U_pzw
+        # U_PZW = exp(-i eta (a + a.dag()) sigmax) 
+        # = exp(-i/sqrt(2 * omega_c) lambda cdot mu (a + a.dag())) 
+        terms_pzw = []
         for mode in range(self.cavity.nmodes):
             ann_cav = tensor(*[qeye(self.cavity.dims[m]) if mode != m
                                     else destroy(self.cavity.dims[mode])
@@ -264,10 +249,33 @@ class TotalSystem:
                 lambda_dot_mu_total += tensor(*[lambda_dot_mu_sys if sys_id==j 
                                           else qeye(self.mp_systems.dims[j])
                                           for j in range(self.mp_systems.nsystems)])
-            prefactor = - 1 / np.sqrt(2 * self.cavity.freqs[mode])
-            terms.append(prefactor * tensor(ann_cav - ann_cav.dag(), lambda_dot_mu_total))
-        U = sum(terms).expm()
-        return U
+            prefactor = -complex(0, 1) / np.sqrt(2 * self.cavity.freqs[mode])
+            terms_pzw.append(prefactor * tensor(ann_cav + ann_cav.dag(), lambda_dot_mu_total))
+            
+        return sum(terms_pzw).expm()
+
+    def gen_phi(self):
+        # gives the rotation from dipole to PF gauge
+        # U_phi = exp(-i pi/2 adagger a)
+        terms_phi = []
+        for mode in range(self.cavity.nmodes):
+            ann_cav = tensor(*[qeye(self.cavity.dims[m]) if mode != m
+                                    else destroy(self.cavity.dims[mode])
+                                    for m in range(self.cavity.nmodes)])
+            terms_phi.append(-complex(0, 1) * np.pi / 2 * tensor(ann_cav.dag() * ann_cav, self.mp_systems.identity))
+        
+        return sum(terms_phi).expm()
+
+    def gen_transform(self, trans=None):
+        if "PFtoC" in trans:
+            return self.gen_phi().dag() * self.gen_pzw()
+        if "PFtoD" in trans:
+            return self.gen_phi().dag()
+        if not trans or "PF" in trans or "pf" in trans:
+            return self.identity
+        else:
+            print("could not find suitable model transformation")
+            raise
 
     def gen_gamma_losses(self, gamma):
         # sqrt(2 gamma) * sigma_-, spontaneuos lossy emission from excited system
@@ -286,8 +294,7 @@ class TotalSystem:
             ann_cav =  tensor(*[qeye(self.cavity.dims[m]) if mode != m
                                     else destroy(self.cavity.dims[mode])
                                     for m in range(self.cavity.nmodes)], self.mp_systems.identity)
-            shifted_ann = self.gen_ann_shifted(ann_cav)
-            jumps.append(prefactor * shifted_ann)
+            jumps.append(prefactor * ann_cav)
         return jumps
 
 

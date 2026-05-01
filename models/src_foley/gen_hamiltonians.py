@@ -12,7 +12,8 @@ def gen_hamiltonian(params):
                        mus = params['mus'],
                        positions = params['positions'],
                        model = params['model'], 
-                       filepath=params['filepath'])
+                       filepaths=params['filepaths'],
+                       bases=params['bases'])
 
 def gen_two_tls_sep(params, mini, maxi, step):
     systems = []
@@ -36,7 +37,7 @@ def get_hamiltonians(params, chain_length, mini , maxi, step):
     systems = []
     for coupling in tqdm(np.arange(mini, maxi, step)):
         lam_factor = coupling * np.sqrt(2 * params['photon_freqs'][0])
-        lambdas = [[0, 0, lam_factor]]
+        lambdas = [[0, 0, lam_factor / np.sqrt(chain_length)]] * chain_length
         params['lambdas'] = lambdas   
         total_system = gen_hamiltonian(params)
         systems.append(total_system)
@@ -46,12 +47,12 @@ def get_2ls_hamiltonians(params, chain_length, mini , maxi, step):
     # basic chain with no spatial components, 1/sqrt(N) factor
     systems = []
     if not params['mus']:
-        parmas['mus'] = [[[[0, -1], [-1, 0]]] * 3] * chain_length
+        params['mus'] = [[[[0, -1], [-1, 0]]] * 3] * chain_length
     
     for coupling in tqdm(np.arange(mini, maxi, step)):
         lam_factor = coupling * np.sqrt(2 * params['photon_freqs'][0])
         lambdas = [[0, 0, lam_factor]]
-        # generation of mus needs to be adaptes
+        # generation of mus needs to be adapted
         params['lambdas'] = lambdas
         total_system = gen_hamiltonian(params)
         systems.append(total_system)

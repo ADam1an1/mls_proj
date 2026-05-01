@@ -10,11 +10,11 @@ class Molecule:
     Class to define a molecule from psi4 calc
     NOTE: THIS MUST BE PRECOMPUTED
     """
-    def __init__(self, molecule, lambdas, filepath):
+    def __init__(self, molecule, lambdas, filepath, basis):
         self.file = filepath
+        self.basis = basis
         self.molecule = molecule
-        if self.molecule == "H2":
-            self.dims = 4
+        self.dims = np.load(self.gen_file_path(0, 0, "HPF")).shape[0] // 2
         self.lambdas = lambdas
         self.lambda_eff = np.round(np.sqrt(np.sum([lamb **2 for lamb in lambdas])), decimals=3)
         
@@ -26,13 +26,14 @@ class Molecule:
         self.dse = Qobj(hpf_elecdse[:self.dims, :self.dims] - hpf_elec[:self.dims, :self.dims])
 
     def gen_file_path(self, freq, lamb, d_info):
-        dir_part = self.file + "/{}_{}/{}_{}_{:.3f}_sto3g_hpf/".format(self.molecule, freq, self.molecule, freq, lamb)
-        file_path = dir_part + "{}_{}_{:.3f}_sto3g_hpf_{}.npy".format(self.molecule, freq, lamb, d_info)
+        dir_part = self.file + "/{}_{}/{}_{}_{:.3f}_{}/".format(self.molecule, freq, self.molecule, freq, lamb, self.basis)
+        file_path = dir_part + "{}_{}_{:.3f}_{}_{}.npy".format(self.molecule, freq, lamb, basis, d_info)
         if os.path.exists(file_path):
+            print(file_path)
             return file_path
         else:
-            dir_part = self.file + "/{}_{}/{}_{}_{:.2f}0_sto3g_hpf/".format(self.molecule, freq, self.molecule, freq, lamb)
-            file_path = dir_part + "{}_{}_{:.2f}0_sto3g_hpf_{}.npy".format(self.molecule, freq, lamb, d_info)
+            dir_part = self.file + "/{}_{}/{}_{}_{:.2f}0_{}/".format(self.molecule, freq, self.molecule, freq, lamb, self.basis)
+            file_path = dir_part + "{}_{}_{:.2f}0_{}_{}.npy".format(self.molecule, freq, lamb, self.basis, d_info)
             return file_path
         
     def gen_lambdadotmu_terms(self, freq=0, lamb=0, sqrd=False):
@@ -44,9 +45,12 @@ class Molecule:
         return Qobj(np.load(self.gen_file_path(freq, lamb, "G")))
 
     def gen_sys_state(self, mol_dirac):
-        if self.molecule == "H2":
-            li = [0, 2, 5, 6]
         CI_eg_vecs = np.load(self.gen_file_path(0, 0, "Vecs"))
+        #if self.molecule == "H2":
+        #    li = [0, 2, 5, 6]
+        #    CI_eg_vec = CI_eg_vecs[:self.dims, li[mol_dirac]]
+        #else:
+        li = [i for i in range(self.dims)]
         CI_eg_vec = CI_eg_vecs[:self.dims, li[mol_dirac]]
         return Qobj(CI_eg_vec) 
 
@@ -76,18 +80,19 @@ class MultipartiteSystem:
     """
     Class to define a set of multilevel systems
     """
-    def __init__(self, systems, lambdas, mus, positions, filepath="/scratch/avd383/qed-ci/H2_chain"):
+    def __init__(self, systems, lambdas, mus, positions=[], 
+                 filepaths=["/scratch/avd383/qed-ci/H2_chain"], bases=["sto3g_hf"]):
         """
         Makes as many systems as needed 
         with specified energy levels
         """
         self.nsystems = len(systems)
-        if not positions:
+        if len(positions) == 0:
             positions = [None] * self.nsystems
         self.systems = []
         for sys_id in range(self.nsystems):
             if isinstance(systems[sys_id], str):
-                self.systems.append(Molecule(systems[sys_id], lambdas[sys_id], filepath))
+                self.systems.append(Molecule(systems[sys_id], lambdas[sys_id], filepaths[sys_id], bases[sys_id]))
             else:
                 self.systems.append(MultilevelSystem(systems[sys_id], 
                                                  lambdas[sys_id], mus[sys_id]))

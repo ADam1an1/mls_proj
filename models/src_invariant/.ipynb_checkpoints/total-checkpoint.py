@@ -11,8 +11,8 @@ class TotalSystem:
     which can be multimode and multiphoton
     """
 
-    def __init__(self, system_e_levels, photon_freqs, max_photon_nums,
-                 couplings_dict, system_starts, photon_starts, model=""):
+    def __init__(self, systems, photon_freqs, max_photon_nums,
+                 couplings, model=""):
         """
         Creates the class
         
@@ -45,9 +45,9 @@ class TotalSystem:
                 [mode1 pnum, ...]
         """
         self.model = model
-        self.couplings_dict = couplings_dict
+        self.couplings_dict = couplings
         self.cavity = Cavity(photon_freqs, max_photon_nums)
-        self.mp_systems = MultipartiteSystem(system_e_levels)
+        self.mp_systems = MultipartiteSystem(systems)
 
         self.total_hamiltonian = qzero(self.cavity.dims + self.mp_systems.dims)
         self.identity = tensor(self.cavity.identity, self.mp_systems.identity)
@@ -76,7 +76,7 @@ class TotalSystem:
                 for level_start in range(trans_sys.dims):
                     for level_end in range(level_start + 1, trans_sys.dims): 
                         
-                        coupling_g = couplings_dict[mode][sys_id][level_start][level_end - level_start - 1]
+                        coupling_g = self.couplings_dict[mode][sys_id][level_start][level_end - level_start - 1]
 
                         # get transition terms and add to hamiltonian
                         down_system = tensor(self.cavity.identity, self.mp_systems.gen_trans_system(sys_id, level_start, level_end))
@@ -87,8 +87,10 @@ class TotalSystem:
                             self.total_hamiltonian += coupling_g * ann_cavity.dag() * down_system
                             self.total_hamiltonian += coupling_g * ann_cavity * down_system.dag()
                         
-                        if model == "dicke":
+                        if "dicke" in model and "invariant" not in model:
                             self.total_hamiltonian += coupling_g * (ann_cavity.dag() + ann_cavity) * sigma_x
+                            if "diamag" in model:
+                                self.total_hamiltonian += coupling_g / 2 * (ann_cavity.dag() + ann_cavity)**2 
 
                         if "invariant_dipole" in model:
                             # we take coupling_g to be eta in Nori's paper instead (eta = g_D/omega_c = g_C/omega_10) 
@@ -100,12 +102,12 @@ class TotalSystem:
                                 trans_sys_j = self.mp_systems.systems[sys_j]
                                 for level_start_j in range(trans_sys_j.dims):
                                     for level_end_j in range(level_start_j + 1, trans_sys_j.dims):
-                                        coupling_g_j = couplings_dict[mode][sys_j][level_start_j][level_end_j - level_start_j - 1]
+                                        coupling_g_j = self.couplings_dict[mode][sys_j][level_start_j][level_end_j - level_start_j - 1]
                                         sigma_x_j = tensor(self.cavity.identity, self.mp_systems.gen_sigmax(sys_j))
                                         self.total_hamiltonian += 2 * omega_c * coupling_g * coupling_g_j * sigma_x * sigma_x_j
                                         self.lamb_mu_sqrd += omega_c * coupling_g * coupling_g_j * self.mp_systems.gen_sigmax(sys_id) * self.mp_systems.gen_sigmax(sys_j)
 
-                        if model == "invariant_coulomb":
+                        if "invariant_coulomb" in model:
                             delta_e_sys = np.abs(self.mp_systems.get_sys_energy(sys_id, level_start) - self.mp_systems.get_sys_energy(sys_id, level_end))
                             
                             # using the shifted operator sigma'z does not work correctly
@@ -124,7 +126,7 @@ class TotalSystem:
                             #     self.total_hamiltonian += sigma_z * cos_part
                             #     self.total_hamiltonian += 0.5 * delta_e_sys * sigma_y * sin_part                     
 
-    def gen_cavity_operators(self):
+    def gen_cavity_operators(self, shift=None):
         """
         Gives operators to get photon number for every photon mode
         """
@@ -135,23 +137,22 @@ class TotalSystem:
                                     else destroy(self.cavity.dims[mode])
                                     for m in range(self.cavity.nmodes)], self.mp_systems.identity)
             
-            if "minus" in self.model or "plus" in self.model:
-                ann_cav = self.gen_ann_shift(ann_cav)
+            if shift and ("minus" in shift or "plus" in self.model):
+                ann_cav = self.gen_ann_shift(ann_cav, self.model)
 
             num_op = ann_cav.dag() * ann_cav
-
-            if "pzw" in self.model:
-                u = self.gen_pzw()
-                # num_op = u * num_op * u.dag()
-                num_op = u.dag() * num_op * u
             
             operators.append(num_op)            
         return operators
 
-    def gen_ann_shift(self, ann_cav):
+    def gen_ann_shift(self, ann_cav, shift=None):
+        # from coulomb to dipole
+        # a -> a' = a - i sum_i (g^i * sigma_x^i)
+        # from dipole to coulomb
         # a -> a' = a + i sum_i (g^i * sigma_x^i)
         # ann_cav = tensor(self.cavity.gen_ann_op(mode), self.mp_systems.identity)
         # we take coupling_g to be eta in Nori's paper instead (eta = g_D/omega_c = g_C/omega_10) 
+        # use to check that PZW has been implemented correctly
         for mode in range(self.cavity.nmodes):
             for sys_id in range(self.mp_systems.nsystems):
                 trans_sys_i = self.mp_systems.systems[sys_id]
@@ -159,16 +160,20 @@ class TotalSystem:
                     for level_end_i in range(level_start_i + 1, trans_sys_i.dims):
                         coupling_g_i = self.couplings_dict[mode][sys_id][level_start_i][level_end_i - level_start_i - 1]
                         sigma_x_i = tensor(self.cavity.identity, self.mp_systems.gen_sigmax(sys_id))
-                        
-                        if "minus" in self.model:
+        
+                        if shift and "minus" in shift:
                             ann_cav -= complex(0, 1) * coupling_g_i * sigma_x_i
-                        if "plus" in self.model: # this is the correct version with no change to coulomb
+                        if shift and "plus" in shift: # this is the correct version with no change to coulomb
                             ann_cav += complex(0, 1) * coupling_g_i * sigma_x_i
         return ann_cav   
 
     def gen_pzw(self):
         # gives the power zienau woolley 
         # tranformation unitary transformation
+        # from coulomb to dipole gauge
+        # U Hcoulomb U dagger = H dipole
+        # from dipole to coulomb
+        # U dagger Hdipole U = Hcoulomb
         # U = exp(-i eta (a + a.dag() sigmax)
         terms = []
         for mode in range(self.cavity.nmodes):
@@ -182,10 +187,18 @@ class TotalSystem:
                     for level_end_i in range(level_start_i + 1, trans_sys_i.dims):
                         coupling_g_i = self.couplings_dict[mode][sys_id][level_start_i][level_end_i - level_start_i - 1]
                         sigma_x_i = self.mp_systems.gen_sigmax(sys_id)
-                        sigma_term += complex(0, 1) * coupling_g_i * sigma_x_i 
+                        sigma_term -= complex(0, 1) * coupling_g_i * sigma_x_i 
             terms.append(tensor(ann_cav.dag() + ann_cav, sigma_term))
         U = sum(terms).expm()
         return U
+
+    def gen_transform(self, trans=None):
+        if "DtoC" in trans:
+            return self.gen_pzw()
+        if "CtoD" in trans:
+            return self.gen_pzw()
+        return self.identity
+
 
     def gen_total_state(self, systems_dirac, photons_dirac):
         """
@@ -198,9 +211,6 @@ class TotalSystem:
     def gen_joint_operator(self, systems_dirac, photons_dirac):   
         state = self.gen_total_state(systems_dirac, photons_dirac)
         proj = state * state.dag()
-        if "pzw" in self.model:
-            u = self.gen_pzw()
-            proj = u.dag() * proj * u
         return proj
 
     def gen_joint_label(self, systems_dirac, photons_dirac):

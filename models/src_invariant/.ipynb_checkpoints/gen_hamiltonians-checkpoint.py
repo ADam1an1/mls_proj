@@ -1,65 +1,96 @@
+import os, sys
+from qutip import *
 import numpy as np
 from tqdm import tqdm
 from total import *
-from qutip import *
-import os, sys
 
-def get_hamiltonians(params, chain_length, min , max, step, 
-                     scale=False, spatial=None):
-    # basic chain with no spatial components, 1/sqrt(N) factor
+def gen_hamiltonian(params):
+    return TotalSystem(systems = params['system_e_levels'],
+                       photon_freqs = params['photon_freqs'],
+                       max_photon_nums = params['photon_max_nums'],
+                       couplings = params['couplings'],
+                       model = params['model'])
+
+def gen_two_tls_sep(params, mini, maxi, step):
     systems = []
-    for coupling in np.arange(min, max, step):       
-        coupling_strengths = []
-        coupling_strengths.append([])
-        for j in range(chain_length):
-            if scale:
-                factor = 1
-                if j != 0:
-                    factor *= np.exp(complex(0, np.pi * coupling))
-                coupling_strengths[0].append([[0, params['base_coupling'] * factor], []])
-            else: 
-                coupling_strengths[0].append([[coupling, 0], []])
-
-        params['couplings'] = coupling_strengths
-        
-        total_system = TotalSystem(params['system_e_levels'], 
-                                   params['photon_freqs'], 
-                                   params['photon_max_nums'],
-                                   params['couplings'], 
-                                   params['system_starts'], 
-                                   params['photon_starts'], 
-                                   model=params['model'])
+    params['positions'][0] = 1 / 4 / params['photon_freqs'][0]
+    for position in tqdm(np.arange(mini, maxi, step)):
+        params['positions'][1] = params['positions'][0] * 2 + position
+        total_system = gen_hamiltonian(params)
         systems.append(total_system)
-        
     return systems
 
-def get_hamiltonians_spatial(params, min , max, step, scale=False, base_pos=0):
-    def calc_spatial_coupling(couplings_dict, system_positions, system_e_levels, photon_freqs):
-        """
-        Modify the coupling dict taking into account the system positions within
-        the photon mode (breaking long wave approximation)
-        """
-        for n in range(len(photon_freqs)):
-            for system in range(len(system_positions)):
-                for level_start in range(len(system_e_levels[system])):
-                    for level_end in range(level_start):
-                        cur_coupling = couplings_dict[n][system][level_end][level_start - level_end - 1] 
-                        # going from high -> low always 
-                        factor = np.abs(np.sin(system_positions[system] * photon_freqs[n]))
-                        couplings_dict[n][system][level_end][level_start - level_end - 1] = cur_coupling * factor
-        return couplings_dict
-        
+def gen_mult_tls_trans(params, mini, maxi, step):
     systems = []
-    for spacing in np.arange(min, max, step):       
-        positions = [base_pos, base_pos + spacing]
-        params['couplings'] = calc_spatial_coupling(params['couplings'], positions,
-                                                    params['system_e_levels'], params['photon_freqs'])
-        total_system = TotalSystem(params['system_e_levels'], 
-                                   params['photon_freqs'], 
-                                   params['photon_max_nums'],
-                                   params['couplings'], 
-                                   params['system_starts'], 
-                                   params['photon_starts'], 
-                                   model=params['model'])
+    for position in tqdm(np.arange(mini, maxi, step)):
+        params['positions'] = [position] * len(params['system_e_levels'])
+        total_system = gen_hamiltonian(params)
         systems.append(total_system)
-    return hamiltonians
+    return systems
+
+def get_hamiltonians(params, chain_length, mini , maxi, step, scale=False):
+    # basic chain with no spatial components, 1/sqrt(N) factor
+    systems = []
+    for coupling in tqdm(np.arange(mini, maxi, step)):
+        coupling_strengths = []
+        coupling_strengths.append([])
+        for j in range(chain_length): 
+            factor = 1
+            if scale:
+                factor = 1 / np.sqrt(chain_length)
+            coupling_strengths[0].append([[coupling * factor, coupling * factor], []])
+
+        params['couplings'] = coupling_strengths  
+        total_system = gen_hamiltonian(params)
+        systems.append(total_system)
+    return systems
+
+def get_2ls_hamiltonians(params, chain_length, mini , maxi, step):
+    # basic chain with no spatial components, 1/sqrt(N) factor
+    systems = []
+    if not params['mus']:
+        params['mus'] = [[[[0, -1], [-1, 0]]] * 3] * chain_length
+    
+    for coupling in tqdm(np.arange(mini, maxi, step)):
+        lam_factor = coupling * np.sqrt(2 * params['photon_freqs'][0])
+        lambdas = [[0, 0, lam_factor]]
+        # generation of mus needs to be adaptes
+        params['lambdas'] = lambdas
+        total_system = gen_hamiltonian(params)
+        systems.append(total_system)
+
+    return systems
+    
+def get_3ls_hamiltonians(params, chain_length, mini, maxi, step):
+    # basic chain with no spatial components, 1/sqrt(N) factor
+    systems = []
+    for coupling in tqdm(np.arange(mini, maxi, step)):
+        lam_factor = coupling * np.sqrt(2 * params['photon_freqs'][0])
+        lambdas = [[0, 0, lam_factor]]
+        params['lambdas'] = lambdas
+        total_system = gen_hamiltonian(params)
+        systems.append(total_system)
+    return systems
+
+def get_4ls_hamiltonians(params, chain_length, mini, maxi, step):
+    # basic chain with no spatial components
+    systems = []        
+    for coupling in tqdm(np.arange(mini, maxi, step)):
+        lam_factor = coupling * np.sqrt(2 * params['photon_freqs'][0])
+        lambdas = [[0, 0, lam_factor]]
+        params['lambdas'] = lambdas        
+        total_system = gen_hamiltonian(params)
+        systems.append(total_system)
+    return systems
+
+def transition_generator(levels_list, trans_dict):
+    mus = []
+    for sys_id in range(len(levels_list)):
+        trans = np.zeros((levels_list[sys_id], levels_list[sys_id]))
+        for start in trans_dict[sys_id].keys():
+            for end in trans_dict[sys_id][start].keys():
+                trans[start, end] += trans_dict[sys_id][start][end]
+                trans[end, start] += trans_dict[sys_id][start][end]
+        mus.append([trans, trans, trans])
+    return mus
+

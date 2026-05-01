@@ -11,8 +11,10 @@ def plot_aa_sep(systems, mini, maxi, step, gamma, kappa):
         jump_ops = []
         jump_ops.extend(total_system.gen_gamma_losses(gamma))
         jump_ops.extend(total_system.gen_kappa_losses(kappa))
+        U = systems[ind].gen_transform(model)
+        jump_ops = [U * jump * U.dag() for jump in jump_ops]
         rho_ss = steadystate(total_system.total_hamiltonian, jump_ops)
-        num_op = total_system.gen_cavity_operators()
+        num_op = U * total_system.gen_cavity_operators() * U.dag()
         ys.extend(expect(num_op, rho_ss))
     plt.plot(xs, np.array(ys)/ys[0], label="n2 / n1")
     plt.xlabel("Distance d / $\lambda$")

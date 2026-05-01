@@ -25,8 +25,9 @@ def plot_domstate(systems, states, mini, maxi, step, omega = 1, norm_state=None,
     nsystems = systems[0].mp_systems.nsystems
     for coupling in tqdm(np.arange(mini, maxi, step)):
         ex_ops = []
+        U = systems[i].gen_transform(model)
         for sys_dirac, cav_dirac in op_list:
-            ex_ops.append(systems[i].gen_joint_operator(sys_dirac, cav_dirac))
+            ex_ops.append(U * systems[i].gen_joint_operator(sys_dirac, cav_dirac) * U.dag())
         hamiltonian = systems[i].total_hamiltonian
         eigenE, eigenV = hamiltonian.eigenstates()
         xs.append(coupling)

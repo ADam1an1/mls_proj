@@ -9,8 +9,10 @@ def plot_state_comp(systems, state, op_list, mini, maxi, step, xlabel="", model=
     ys = []
     for coupling in tqdm(np.arange(mini, maxi, step)):
         proj_operators = []
+        U = systems[i].gen_transform(model)
         for sys_dirac, cav_dirac in op_list:
-            proj_operators.append(systems[i].gen_joint_operator(sys_dirac, cav_dirac))
+            proj_operators.append(U * systems[i].gen_joint_operator(sys_dirac, cav_dirac) * U.dag())
+
         hamiltonian = systems[i].total_hamiltonian
         eigenE, eigenV = hamiltonian.eigenstates()
         xs.append(coupling)
@@ -38,8 +40,9 @@ def plot_state_comp_rev(systems, state_dirac, eigs, mini, maxi, step, xlabel="",
         hamiltonian = systems[i].total_hamiltonian
         eigenE, eigenV = hamiltonian.eigenstates()
         xs.append(coupling)
+        U = systems[i].gen_transform(model)
         proj_operators = [eigenV[eig] * eigenV[eig].dag() for eig in eigs]
-        ys.append([expect(proj_op, state) for proj_op in proj_operators])
+        ys.append([expect(U * proj_op * U.dag(), state) for proj_op in proj_operators])
         i += 1
 
     for j in range(len(eigs)):

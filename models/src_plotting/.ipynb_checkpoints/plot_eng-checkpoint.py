@@ -39,7 +39,8 @@ def plot_energies(systems, states, mini, maxi, step, omega = 1, norm_state=None,
         plt.ylim(lims[1])
     plt.show()
 
-def plot_eng_comp(systems, state, mini, maxi, step, omega = 1, norm_state=None, xlabel="", model="", lims=[]):
+def plot_eng_comp(systems, state, mini, maxi, step, omega = 1, 
+                  norm_state=None, xlabel="", model="", lims=[], norm=False):
     i = 0
     eng_types = ["elec", "dse", "photon", "blc"]
     xs = []
@@ -51,10 +52,7 @@ def plot_eng_comp(systems, state, mini, maxi, step, omega = 1, norm_state=None, 
         eigenE, eigenV = hamiltonian.eigenstates()
         xs.append(coupling)
 
-        if "pzw" in model:
-            U = systems[i].gen_pzw()
-        else:
-            U = systems[i].identity
+        U = systems[i].gen_transform(model)
             
         operator_elec = U * systems[i].total_elec * U.dag()
         operator_dse = U * systems[i].total_dse * U.dag()
@@ -74,7 +72,7 @@ def plot_eng_comp(systems, state, mini, maxi, step, omega = 1, norm_state=None, 
         i += 1
 
     for eng_type in eng_types:
-        plt.plot(xs, ys[eng_type], label=eng_type)
+        plt.plot(xs, [ys[eng_type][i] - norm * ys[eng_type][0] for i in range(len(xs))], label=eng_type)
             
     plt.legend()
     plt.xlabel(xlabel)
